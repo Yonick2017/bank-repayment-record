@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -309,11 +311,101 @@ func TestCORSPreflightAndAllowList(t *testing.T) {
 	}
 }
 
+func TestFrontendStaticFilesAndSPAFallback(t *testing.T) {
+	distDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<html>app-shell</html>"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(distDir, "assets"), 0o755); err != nil {
+		t.Fatalf("create assets dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "assets", "main.js"), []byte("console.log('ok')"), 0o644); err != nil {
+		t.Fatalf("write main.js: %v", err)
+	}
+
+	handler, _, cleanup := newTestHandlerWithFrontend(t, nil, distDir)
+	defer cleanup()
+
+	rootRes := httptest.NewRecorder()
+	rootReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	handler.ServeHTTP(rootRes, rootReq)
+	if rootRes.Code != http.StatusOK {
+		t.Fatalf("expected root status 200, got %d", rootRes.Code)
+	}
+	if !strings.Contains(rootRes.Body.String(), "app-shell") {
+		t.Fatalf("expected root to serve index.html")
+	}
+
+	assetRes := httptest.NewRecorder()
+	assetReq := httptest.NewRequest(http.MethodGet, "/assets/main.js", nil)
+	handler.ServeHTTP(assetRes, assetReq)
+	if assetRes.Code != http.StatusOK {
+		t.Fatalf("expected static asset status 200, got %d", assetRes.Code)
+	}
+	if !strings.Contains(assetRes.Body.String(), "console.log('ok')") {
+		t.Fatalf("expected static asset content, got %q", assetRes.Body.String())
+	}
+
+	routeRes := httptest.NewRecorder()
+	routeReq := httptest.NewRequest(http.MethodGet, "/history", nil)
+	handler.ServeHTTP(routeRes, routeReq)
+	if routeRes.Code != http.StatusOK {
+		t.Fatalf("expected SPA fallback status 200, got %d", routeRes.Code)
+	}
+	if !strings.Contains(routeRes.Body.String(), "app-shell") {
+		t.Fatalf("expected SPA route fallback to index.html")
+	}
+}
+
+func TestFrontendMissingDistServesAPIOnly(t *testing.T) {
+	missingDistDir := filepath.Join(t.TempDir(), "missing-dist")
+	handler, _, cleanup := newTestHandlerWithFrontend(t, nil, missingDistDir)
+	defer cleanup()
+
+	rootRes := httptest.NewRecorder()
+	rootReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	handler.ServeHTTP(rootRes, rootReq)
+	if rootRes.Code != http.StatusNotFound {
+		t.Fatalf("expected root status 404 when dist missing, got %d", rootRes.Code)
+	}
+
+	apiRes := httptest.NewRecorder()
+	apiReq := httptest.NewRequest(http.MethodGet, "/api/stats/current-month", nil)
+	handler.ServeHTTP(apiRes, apiReq)
+	if apiRes.Code != http.StatusOK {
+		t.Fatalf("expected API status 200 when dist missing, got %d", apiRes.Code)
+	}
+}
+
+func TestFrontendRouteDoesNotOverrideAPI(t *testing.T) {
+	distDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<html>index</html>"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	handler, _, cleanup := newTestHandlerWithFrontend(t, nil, distDir)
+	defer cleanup()
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/repayments", nil)
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected API route to win with 405, got %d", res.Code)
+	}
+	if !strings.Contains(res.Body.String(), "method not allowed") {
+		t.Fatalf("expected API response body, got %q", res.Body.String())
+	}
+}
+
 func newTestHandler(t *testing.T) (http.Handler, *storage.SQLiteStore, func()) {
-	return newTestHandlerWithOrigins(t, nil)
+	return newTestHandlerWithFrontend(t, nil, "")
 }
 
 func newTestHandlerWithOrigins(t *testing.T, origins []string) (http.Handler, *storage.SQLiteStore, func()) {
+	return newTestHandlerWithFrontend(t, origins, "")
+}
+
+func newTestHandlerWithFrontend(t *testing.T, origins []string, frontendDistDir string) (http.Handler, *storage.SQLiteStore, func()) {
 	t.Helper()
 
 	loc, err := time.LoadLocation("Asia/Shanghai")
@@ -327,7 +419,7 @@ func newTestHandlerWithOrigins(t *testing.T, origins []string) (http.Handler, *s
 		t.Fatalf("open sqlite: %v", err)
 	}
 
-	server := httpapi.NewServer(store, loc, origins...)
+	server := httpapi.NewServer(store, loc, frontendDistDir, origins...)
 	cleanup := func() {
 		if err := store.Close(); err != nil {
 			t.Fatalf("close sqlite: %v", err)
