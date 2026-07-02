@@ -11,6 +11,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("TIMEZONE", "")
 	t.Setenv("PORT", "")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "")
+	t.Setenv("FRONTEND_DIST_DIR", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -31,6 +32,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.CORSAllowedOrigins[0] != "http://localhost:5173" {
 		t.Fatalf("unexpected default CORS origin %q", cfg.CORSAllowedOrigins[0])
+	}
+	if cfg.FrontendDistDir != defaultFrontendDistDir {
+		t.Fatalf("expected default FRONTEND_DIST_DIR %q, got %q", defaultFrontendDistDir, cfg.FrontendDistDir)
 	}
 }
 

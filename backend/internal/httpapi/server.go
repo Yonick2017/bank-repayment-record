@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -34,16 +37,18 @@ type Store interface {
 }
 
 type Server struct {
-	store          Store
-	loc            *time.Location
-	allowedOrigins map[string]struct{}
+	store           Store
+	loc             *time.Location
+	allowedOrigins  map[string]struct{}
+	frontendDistDir string
 }
 
-func NewServer(store Store, loc *time.Location, corsAllowedOrigins ...string) *Server {
+func NewServer(store Store, loc *time.Location, frontendDistDir string, corsAllowedOrigins ...string) *Server {
 	return &Server{
-		store:          store,
-		loc:            loc,
-		allowedOrigins: buildAllowedOrigins(corsAllowedOrigins),
+		store:           store,
+		loc:             loc,
+		allowedOrigins:  buildAllowedOrigins(corsAllowedOrigins),
+		frontendDistDir: strings.TrimSpace(frontendDistDir),
 	}
 }
 
@@ -55,8 +60,45 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/repayments/stats", s.handleMonthlyStats)
 	mux.HandleFunc("/api/stats/monthly", s.handleMonthlyStats)
 	mux.HandleFunc("/api/stats/current-month", s.handleCurrentMonthStats)
+	mux.HandleFunc("/", s.handleFrontend)
 
 	return corsMiddleware(mux, s.allowedOrigins)
+}
+
+func (s *Server) handleFrontend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.NotFound(w, r)
+		return
+	}
+	if s.frontendDistDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	cleanPath := path.Clean("/" + r.URL.Path)
+	if cleanPath != "/" {
+		targetFile := filepath.Join(s.frontendDistDir, filepath.FromSlash(strings.TrimPrefix(cleanPath, "/")))
+		if isRegularFile(targetFile) {
+			http.ServeFile(w, r, targetFile)
+			return
+		}
+	}
+
+	indexFile := filepath.Join(s.frontendDistDir, "index.html")
+	if isRegularFile(indexFile) {
+		http.ServeFile(w, r, indexFile)
+		return
+	}
+
+	http.NotFound(w, r)
+}
+
+func isRegularFile(filePath string) bool {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
 }
 
 type createRepaymentRequest struct {

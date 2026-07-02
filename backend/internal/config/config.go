@@ -13,6 +13,7 @@ const (
 	defaultTimezone          = "Asia/Shanghai"
 	defaultPort              = "8080"
 	defaultCORSAllowedOrigin = "http://localhost:5173,http://127.0.0.1:5173"
+	defaultFrontendDistDir   = "../frontend/dist"
 )
 
 type Config struct {
@@ -20,6 +21,7 @@ type Config struct {
 	Timezone           string
 	Port               string
 	CORSAllowedOrigins []string
+	FrontendDistDir    string
 }
 
 func Load() (Config, error) {
@@ -28,6 +30,7 @@ func Load() (Config, error) {
 		Timezone:           envOrDefault("TIMEZONE", defaultTimezone),
 		Port:               envOrDefault("PORT", defaultPort),
 		CORSAllowedOrigins: parseCommaSeparatedValues(envOrDefault("CORS_ALLOWED_ORIGINS", defaultCORSAllowedOrigin)),
+		FrontendDistDir:    envOrDefault("FRONTEND_DIST_DIR", defaultFrontendDistDir),
 	}
 
 	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
