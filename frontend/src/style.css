@@ -103,6 +103,24 @@ select {
   gap: 12px;
 }
 
+.site-footer {
+  margin-top: 8px;
+  padding: 12px 0 4px;
+  text-align: center;
+}
+
+.beian-link {
+  color: #6b7280;
+  font-size: 0.88rem;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.beian-link:hover {
+  color: #475569;
+  text-decoration: underline;
+}
+
 .actions {
   margin-top: 16px;
   display: flex;
