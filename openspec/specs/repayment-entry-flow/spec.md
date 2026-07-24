@@ -13,7 +13,7 @@
 - **THEN** 系统按步骤推进并在每次点击“下一步”后展示统一过渡动画
 
 ### Requirement: Supported card options
-系统 SHALL 在步骤一提供固定银行卡选项：`BOCHK Visa`、`BOCHK Mastercard`、`HSBC Visa Gold`、`HSBC Pulse`，且用户 MUST 选择一项后方可进入下一步。
+系统 SHALL 在步骤一提供固定银行卡选项：`BOCHK Visa`、`BOCHK Mastercard`、`HSBC Visa Gold`、`HSBC Pulse`、`Hang Seng Travel+`、`HSBC Visa Signature`、`Amex US`、`BEA GOAL`、`CITIC Motion`、`Earnmore`、`SC Smart`、`ICBC SUP`、`ICBC 奋斗`，且用户 MUST 选择一项后方可进入下一步。
 
 #### Scenario: Card selection is required
 - **WHEN** 用户未选择银行卡就点击“下一步”

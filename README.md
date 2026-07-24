@@ -36,6 +36,15 @@ A local single-user web application for tracking bank card repayments.
   - `BOCHK Mastercard`
   - `HSBC Visa Gold`
   - `HSBC Pulse`
+  - `Hang Seng Travel+`
+  - `HSBC Visa Signature`
+  - `Amex US`
+  - `BEA GOAL`
+  - `CITIC Motion`
+  - `Earnmore`
+  - `SC Smart`
+  - `ICBC SUP`
+  - `ICBC 奋斗`
 - Currency:
   - `RMB`
   - `HKD`

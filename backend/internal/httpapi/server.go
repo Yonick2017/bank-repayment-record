@@ -19,10 +19,19 @@ import (
 
 var (
 	allowedCards = map[string]struct{}{
-		"BOCHK Visa":       {},
-		"BOCHK Mastercard": {},
-		"HSBC Visa Gold":   {},
-		"HSBC Pulse":       {},
+		"BOCHK Visa":           {},
+		"BOCHK Mastercard":     {},
+		"HSBC Visa Gold":       {},
+		"HSBC Pulse":           {},
+		"Hang Seng Travel+":    {},
+		"HSBC Visa Signature":  {},
+		"Amex US":              {},
+		"BEA GOAL":             {},
+		"CITIC Motion":         {},
+		"Earnmore":             {},
+		"SC Smart":             {},
+		"ICBC SUP":             {},
+		"ICBC 奋斗":            {},
 	}
 	allowedCurrencies = map[string]struct{}{
 		"RMB": {},
