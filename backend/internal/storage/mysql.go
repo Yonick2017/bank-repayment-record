@@ -7,36 +7,58 @@ import (
 	"strings"
 	"time"
 
+	"bank-repayment-record/backend/internal/config"
 	"bank-repayment-record/backend/internal/repayment"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/go-sql-driver/mysql"
 )
 
-type SQLiteStore struct {
+type MySQLStore struct {
 	db  *sql.DB
 	loc *time.Location
 }
 
-func OpenSQLite(dbPath string, loc *time.Location) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", dbPath)
+func OpenMySQL(cfg config.MySQLConfig, loc *time.Location) (*MySQLStore, error) {
+	dsn, err := cfg.DSN()
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite: %w", err)
+		return nil, fmt.Errorf("build mysql dsn: %w", err)
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
 	}
 
-	store := &SQLiteStore{db: db, loc: loc}
-	if err := store.initSchema(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("ping mysql: %w", err)
 	}
 
-	return store, nil
+	return &MySQLStore{db: db, loc: loc}, nil
 }
 
-func (s *SQLiteStore) Close() error {
+func OpenMySQLDSN(dsn string, loc *time.Location) (*MySQLStore, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping mysql: %w", err)
+	}
+
+	return &MySQLStore{db: db, loc: loc}, nil
+}
+
+func (s *MySQLStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *SQLiteStore) CreateRepayment(ctx context.Context, record repayment.Record) (repayment.Record, error) {
+func (s *MySQLStore) CreateRepayment(ctx context.Context, record repayment.Record) (repayment.Record, error) {
 	query := `
 		INSERT INTO repayments (card_name, currency, amount, repayment_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -49,9 +71,9 @@ func (s *SQLiteStore) CreateRepayment(ctx context.Context, record repayment.Reco
 		record.CardName,
 		record.Currency,
 		record.AmountCents,
-		repaymentAt.Format(time.RFC3339),
-		now.Format(time.RFC3339),
-		now.Format(time.RFC3339),
+		repaymentAt,
+		now,
+		now,
 	)
 	if err != nil {
 		return repayment.Record{}, fmt.Errorf("insert repayment: %w", err)
@@ -70,7 +92,7 @@ func (s *SQLiteStore) CreateRepayment(ctx context.Context, record repayment.Reco
 	return record, nil
 }
 
-func (s *SQLiteStore) DeleteRepayment(ctx context.Context, id int64) (bool, error) {
+func (s *MySQLStore) DeleteRepayment(ctx context.Context, id int64) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM repayments WHERE id = ?`, id)
 	if err != nil {
 		return false, fmt.Errorf("delete repayment: %w", err)
@@ -84,7 +106,7 @@ func (s *SQLiteStore) DeleteRepayment(ctx context.Context, id int64) (bool, erro
 	return rows > 0, nil
 }
 
-func (s *SQLiteStore) ListRepayments(ctx context.Context, filters repayment.Filters) ([]repayment.Record, error) {
+func (s *MySQLStore) ListRepayments(ctx context.Context, filters repayment.Filters) ([]repayment.Record, error) {
 	conditions := make([]string, 0, 2)
 	args := make([]any, 0, 2)
 
@@ -115,33 +137,19 @@ func (s *SQLiteStore) ListRepayments(ctx context.Context, filters repayment.Filt
 	records := make([]repayment.Record, 0)
 	for rows.Next() {
 		var (
-			record                       repayment.Record
-			repaymentAtStr, createdAtStr string
-			updatedAtStr                 string
+			record                            repayment.Record
+			repaymentAt, createdAt, updatedAt time.Time
 		)
 		if err := rows.Scan(
 			&record.ID,
 			&record.CardName,
 			&record.Currency,
 			&record.AmountCents,
-			&repaymentAtStr,
-			&createdAtStr,
-			&updatedAtStr,
+			&repaymentAt,
+			&createdAt,
+			&updatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan repayment row: %w", err)
-		}
-
-		repaymentAt, err := time.Parse(time.RFC3339, repaymentAtStr)
-		if err != nil {
-			return nil, fmt.Errorf("parse repayment_at for id %d: %w", record.ID, err)
-		}
-		createdAt, err := time.Parse(time.RFC3339, createdAtStr)
-		if err != nil {
-			return nil, fmt.Errorf("parse created_at for id %d: %w", record.ID, err)
-		}
-		updatedAt, err := time.Parse(time.RFC3339, updatedAtStr)
-		if err != nil {
-			return nil, fmt.Errorf("parse updated_at for id %d: %w", record.ID, err)
 		}
 
 		record.RepaymentAt = repaymentAt.In(s.loc)
@@ -156,23 +164,9 @@ func (s *SQLiteStore) ListRepayments(ctx context.Context, filters repayment.Filt
 	return records, nil
 }
 
-func (s *SQLiteStore) initSchema(ctx context.Context) error {
-	schema := `
-CREATE TABLE IF NOT EXISTS repayments (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	card_name TEXT NOT NULL,
-	currency TEXT NOT NULL,
-	amount INTEGER NOT NULL,
-	repayment_at TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_repayments_repayment_at ON repayments (repayment_at);
-CREATE INDEX IF NOT EXISTS idx_repayments_currency ON repayments (currency);
-CREATE INDEX IF NOT EXISTS idx_repayments_card_name ON repayments (card_name);
-`
-	if _, err := s.db.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("init sqlite schema: %w", err)
+func (s *MySQLStore) ClearRepayments(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM repayments`); err != nil {
+		return fmt.Errorf("clear repayments: %w", err)
 	}
 	return nil
 }

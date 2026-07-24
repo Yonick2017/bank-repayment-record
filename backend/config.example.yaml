@@ -1,0 +1,30 @@
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "repay"
+  password: "change-me"
+  database: "bank_repayment"
+  # Optional; defaults applied when omitted
+  params: "parseTime=true&loc=Local&charset=utf8mb4&collation=utf8mb4_unicode_ci"
+
+server:
+  port: "8080"
+  timezone: "Asia/Shanghai"
+  cors_allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+  frontend_dist_dir: "../frontend/dist"
+  # Optional ICP filing display text on the login page.
+  # Leave empty (or omit) to hide the beian link.
+  beian_text: ""
+
+auth:
+  # SHA-256 hex digest of the shared login password (not the plaintext).
+  # Example below is SHA-256("change-me") — replace before deploying.
+  # Generate (Linux/macOS):  echo -n 'your-password' | sha256sum
+  # Generate (PowerShell):   [BitConverter]::ToString((New-Object Security.Cryptography.SHA256Managed).ComputeHash([Text.Encoding]::UTF8.GetBytes('your-password'))).Replace('-','').ToLower()
+  password_hash: "e2186dbdb1bb4193608605e84f33208765b5693b55edd4f730a719a100eeea6f"
+  # Long random string used to sign the HttpOnly session cookie (min 16 chars)
+  session_secret: "replace-with-a-long-random-secret"
+  # Optional; defaults to 30 when omitted
+  session_days: 30

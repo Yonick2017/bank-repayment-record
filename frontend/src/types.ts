@@ -4,6 +4,15 @@ export type CardOption =
   | 'BOCHK Mastercard'
   | 'HSBC Visa Gold'
   | 'HSBC Pulse'
+  | 'Hang Seng Travel+'
+  | 'HSBC Visa Signature'
+  | 'Amex US'
+  | 'BEA GOAL'
+  | 'CITIC Motion'
+  | 'Earnmore'
+  | 'SC Smart'
+  | 'ICBC SUP'
+  | 'ICBC 奋斗'
 
 export interface RepaymentRecord {
   id: string

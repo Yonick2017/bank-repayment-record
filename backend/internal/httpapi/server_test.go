@@ -13,9 +13,15 @@ import (
 	"testing"
 	"time"
 
+	"bank-repayment-record/backend/internal/auth"
 	"bank-repayment-record/backend/internal/httpapi"
 	"bank-repayment-record/backend/internal/repayment"
 	"bank-repayment-record/backend/internal/storage"
+)
+
+const (
+	testPasswordHash  = "e2186dbdb1bb4193608605e84f33208765b5693b55edd4f730a719a100eeea6f"
+	testSessionSecret = "test-session-secret-value"
 )
 
 func TestCreateRepaymentCompatibilityFields(t *testing.T) {
@@ -299,6 +305,9 @@ func TestCORSPreflightAndAllowList(t *testing.T) {
 	if preflightRes.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
 		t.Fatalf("expected allow origin for configured host")
 	}
+	if preflightRes.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("expected allow credentials for configured host")
+	}
 
 	blockedRes := httptest.NewRecorder()
 	blockedReq := httptest.NewRequest(http.MethodOptions, "/api/repayments", nil)
@@ -397,38 +406,89 @@ func TestFrontendRouteDoesNotOverrideAPI(t *testing.T) {
 	}
 }
 
-func newTestHandler(t *testing.T) (http.Handler, *storage.SQLiteStore, func()) {
+func newTestHandler(t *testing.T) (http.Handler, *storage.MySQLStore, func()) {
 	return newTestHandlerWithFrontend(t, nil, "")
 }
 
-func newTestHandlerWithOrigins(t *testing.T, origins []string) (http.Handler, *storage.SQLiteStore, func()) {
+func newTestHandlerWithOrigins(t *testing.T, origins []string) (http.Handler, *storage.MySQLStore, func()) {
 	return newTestHandlerWithFrontend(t, origins, "")
 }
 
-func newTestHandlerWithFrontend(t *testing.T, origins []string, frontendDistDir string) (http.Handler, *storage.SQLiteStore, func()) {
+func newTestHandlerWithFrontend(t *testing.T, origins []string, frontendDistDir string) (http.Handler, *storage.MySQLStore, func()) {
 	t.Helper()
+
+	dsn := strings.TrimSpace(os.Getenv("TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("TEST_MYSQL_DSN not set; skip MySQL integration tests")
+	}
 
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		t.Fatalf("load location: %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	store, err := storage.OpenSQLite(dbPath, loc)
+	store, err := storage.OpenMySQLDSN(dsn, loc)
 	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+		t.Fatalf("open mysql: %v", err)
+	}
+	if err := store.ClearRepayments(context.Background()); err != nil {
+		_ = store.Close()
+		t.Fatalf("clear repayments: %v", err)
 	}
 
-	server := httpapi.NewServer(store, loc, frontendDistDir, origins...)
+	server := httpapi.NewServer(store, loc, httpapi.ServerOptions{
+		FrontendDistDir:    frontendDistDir,
+		CORSAllowedOrigins: origins,
+		Auth: auth.Config{
+			PasswordHash:  testPasswordHash,
+			SessionSecret: testSessionSecret,
+			SessionDays:   auth.DefaultSessionDays,
+		},
+	})
+	rawHandler := server.Handler()
+	cookie := mustLogin(t, rawHandler, testPasswordHash)
 	cleanup := func() {
+		if err := store.ClearRepayments(context.Background()); err != nil {
+			t.Fatalf("clear repayments: %v", err)
+		}
 		if err := store.Close(); err != nil {
-			t.Fatalf("close sqlite: %v", err)
+			t.Fatalf("close mysql: %v", err)
 		}
 	}
-	return server.Handler(), store, cleanup
+	return &cookieHandler{next: rawHandler, cookie: cookie}, store, cleanup
 }
 
-func mustCreateRecord(t *testing.T, store *storage.SQLiteStore, record repayment.Record) repayment.Record {
+type cookieHandler struct {
+	next   http.Handler
+	cookie *http.Cookie
+}
+
+func (h *cookieHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.cookie != nil {
+		r.AddCookie(h.cookie)
+	}
+	h.next.ServeHTTP(w, r)
+}
+
+func mustLogin(t *testing.T, handler http.Handler, passwordHash string) *http.Cookie {
+	t.Helper()
+	res := httptest.NewRecorder()
+	body := `{"passwordHash":"` + passwordHash + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(body))
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("login failed: %d %s", res.Code, res.Body.String())
+	}
+	for _, cookie := range res.Result().Cookies() {
+		if cookie.Name == auth.CookieName {
+			return cookie
+		}
+	}
+	t.Fatalf("expected session cookie after login")
+	return nil
+}
+
+func mustCreateRecord(t *testing.T, store *storage.MySQLStore, record repayment.Record) repayment.Record {
 	t.Helper()
 	created, err := store.CreateRepayment(contextBackground(), record)
 	if err != nil {

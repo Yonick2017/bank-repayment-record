@@ -14,15 +14,25 @@ import (
 	"strings"
 	"time"
 
+	"bank-repayment-record/backend/internal/auth"
 	"bank-repayment-record/backend/internal/repayment"
 )
 
 var (
 	allowedCards = map[string]struct{}{
-		"BOCHK Visa":       {},
-		"BOCHK Mastercard": {},
-		"HSBC Visa Gold":   {},
-		"HSBC Pulse":       {},
+		"BOCHK Visa":          {},
+		"BOCHK Mastercard":    {},
+		"HSBC Visa Gold":      {},
+		"HSBC Pulse":          {},
+		"Hang Seng Travel+":   {},
+		"HSBC Visa Signature": {},
+		"Amex US":             {},
+		"BEA GOAL":            {},
+		"CITIC Motion":        {},
+		"Earnmore":            {},
+		"SC Smart":            {},
+		"ICBC SUP":            {},
+		"ICBC 奋斗":             {},
 	}
 	allowedCurrencies = map[string]struct{}{
 		"RMB": {},
@@ -36,24 +46,45 @@ type Store interface {
 	ListRepayments(ctx context.Context, filters repayment.Filters) ([]repayment.Record, error)
 }
 
+type ServerOptions struct {
+	FrontendDistDir    string
+	CORSAllowedOrigins []string
+	Auth               auth.Config
+	BeianText          string
+}
+
 type Server struct {
 	store           Store
 	loc             *time.Location
 	allowedOrigins  map[string]struct{}
 	frontendDistDir string
+	auth            auth.Config
+	beianText       string
+	now             func() time.Time
 }
 
-func NewServer(store Store, loc *time.Location, frontendDistDir string, corsAllowedOrigins ...string) *Server {
+func NewServer(store Store, loc *time.Location, opts ServerOptions) *Server {
+	authCfg := opts.Auth
+	if authCfg.SessionDays <= 0 {
+		authCfg.SessionDays = auth.DefaultSessionDays
+	}
 	return &Server{
 		store:           store,
 		loc:             loc,
-		allowedOrigins:  buildAllowedOrigins(corsAllowedOrigins),
-		frontendDistDir: strings.TrimSpace(frontendDistDir),
+		allowedOrigins:  buildAllowedOrigins(opts.CORSAllowedOrigins),
+		frontendDistDir: strings.TrimSpace(opts.FrontendDistDir),
+		auth:            authCfg,
+		beianText:       strings.TrimSpace(opts.BeianText),
+		now:             time.Now,
 	}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/public/config", s.handlePublicConfig)
+	mux.HandleFunc("/api/auth/login", s.handleLogin)
+	mux.HandleFunc("/api/auth/logout", s.handleLogout)
+	mux.HandleFunc("/api/auth/me", s.handleMe)
 	mux.HandleFunc("/api/repayments", s.handleRepayments)
 	mux.HandleFunc("/api/repayments/history", s.handleRepaymentHistory)
 	mux.HandleFunc("/api/repayments/", s.handleRepaymentByID)
@@ -62,7 +93,97 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/stats/current-month", s.handleCurrentMonthStats)
 	mux.HandleFunc("/", s.handleFrontend)
 
-	return corsMiddleware(mux, s.allowedOrigins)
+	return corsMiddleware(s.requireAuth(mux), s.allowedOrigins)
+}
+
+type loginRequest struct {
+	PasswordHash string `json:"passwordHash"`
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if !auth.PasswordHashMatches(s.auth.PasswordHash, req.PasswordHash) {
+		writeError(w, http.StatusUnauthorized, "invalid password")
+		return
+	}
+
+	token, expires, err := auth.IssueToken(s.auth.SessionSecret, s.now(), s.auth.SessionTTL())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	auth.SetSessionCookie(w, token, expires, r.TLS != nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	auth.ClearSessionCookie(w)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.hasValidSession(r) {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) hasValidSession(r *http.Request) bool {
+	token, ok := auth.SessionFromRequest(r)
+	if !ok {
+		return false
+	}
+	return auth.ValidateToken(s.auth.SessionSecret, token, s.now())
+}
+
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isProtectedAPI(r.URL.Path) && !s.hasValidSession(r) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isProtectedAPI(pathValue string) bool {
+	if !strings.HasPrefix(pathValue, "/api/") {
+		return false
+	}
+	switch pathValue {
+	case "/api/public/config", "/api/auth/login", "/api/auth/logout", "/api/auth/me":
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *Server) handlePublicConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"beianText": s.beianText,
+	})
 }
 
 func (s *Server) handleFrontend(w http.ResponseWriter, r *http.Request) {
@@ -530,6 +651,7 @@ func corsMiddleware(next http.Handler, allowedOrigins map[string]struct{}) http.
 		origin := r.Header.Get("Origin")
 		if _, ok := allowedOrigins[origin]; ok {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Vary", "Origin")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")

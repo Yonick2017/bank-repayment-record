@@ -1,13 +1,15 @@
 # Bank Repayment Record
 
-A local single-user web application for tracking bank card repayments.
+A single-user web application for tracking bank card repayments.
 
 - Frontend: Vue 3 + Vite
-- Backend: Go + SQLite
-- Data storage: local SQLite file (configurable path)
+- Backend: Go + MySQL 8.0
+- Data storage: online MySQL (connection configured via YAML)
+- Access control: shared password gate with HttpOnly session cookie (30 days)
 
 ## Features
 
+- Shared-password login (password hashed in the browser before the login request)
 - Home page with two actions:
   - `记录还款`
   - `查看历史记录`
@@ -36,6 +38,15 @@ A local single-user web application for tracking bank card repayments.
   - `BOCHK Mastercard`
   - `HSBC Visa Gold`
   - `HSBC Pulse`
+  - `Hang Seng Travel+`
+  - `HSBC Visa Signature`
+  - `Amex US`
+  - `BEA GOAL`
+  - `CITIC Motion`
+  - `Earnmore`
+  - `SC Smart`
+  - `ICBC SUP`
+  - `ICBC 奋斗`
 - Currency:
   - `RMB`
   - `HKD`
@@ -44,7 +55,7 @@ A local single-user web application for tracking bank card repayments.
 
 ```text
 .
-├─ backend/      # Go API server, config, SQLite persistence, backend tests
+├─ backend/      # Go API server, YAML config, MySQL persistence, backend tests
 ├─ frontend/     # Vue application, UI tests
 └─ openspec/     # OpenSpec change artifacts and task tracking
 ```
@@ -54,10 +65,25 @@ A local single-user web application for tracking bank card repayments.
 - Go `1.24+`
 - Node.js `18+` (recommended `20+`)
 - npm
+- MySQL `8.0` (database and `repayments` table created in advance)
 
 ## Quick Start
 
-### 1) Start backend
+### 1) Configure backend
+
+```bash
+cd backend
+cp config.example.yaml config.yaml
+# edit mysql.* and auth.password_hash / auth.session_secret in config.yaml
+```
+
+`auth.password_hash` must be the SHA-256 hex digest of the shared login password (see `backend/README.md` for generation commands). Do not store the plaintext password in YAML.
+
+`config.yaml` is gitignored. Use `config.example.yaml` as the template.
+
+Optional: set `CONFIG_PATH` to an absolute path if the file is not at `./config.yaml` or `./backend/config.yaml`.
+
+### 2) Start backend
 
 ```bash
 cd backend
@@ -65,9 +91,9 @@ go mod tidy
 go run ./cmd/server
 ```
 
-Backend default address: `http://localhost:8080`
+Backend default address: `http://localhost:8080` (port comes from `server.port` in YAML).
 
-### 2) Start frontend
+### 3) Start frontend
 
 ```bash
 cd frontend
@@ -79,25 +105,38 @@ Frontend default address: `http://localhost:5173`
 
 Vite dev server proxies `/api` requests to `http://localhost:8080`.
 
-## Backend Environment Variables
+## Backend Configuration (YAML)
 
-- `DB_PATH` (default: `data/repayments.db`)
-- `TIMEZONE` (default: `Asia/Shanghai`)
-- `PORT` (default: `8080`)
-- `CORS_ALLOWED_ORIGINS`  
-  default: `http://localhost:5173,http://127.0.0.1:5173`
-- `FRONTEND_DIST_DIR`  
-  default: `../frontend/dist`
+Primary config file: `backend/config.example.yaml` → copy to `backend/config.yaml`.
+
+| Key | Description | Default when omitted |
+|---|---|---|
+| `mysql.host` | MySQL host | required |
+| `mysql.port` | MySQL port | `3306` |
+| `mysql.user` | MySQL user | required |
+| `mysql.password` | MySQL password | empty string |
+| `mysql.database` | Database name | required |
+| `mysql.params` | DSN query params | `parseTime=true&loc=Local&charset=utf8mb4&collation=utf8mb4_unicode_ci` |
+| `server.port` | HTTP listen port | `8080` |
+| `server.timezone` | App timezone | `Asia/Shanghai` |
+| `server.cors_allowed_origins` | CORS allow list | localhost Vite origins |
+| `server.frontend_dist_dir` | Built frontend directory | `../frontend/dist` |
+
+Environment variable:
+
+- `CONFIG_PATH` — optional path to the YAML file
 
 Example:
 
 ```bash
-DB_PATH=./data/local.db TIMEZONE=Asia/Shanghai PORT=8080 FRONTEND_DIST_DIR=../frontend/dist go run ./cmd/server
+cd backend
+cp config.example.yaml config.yaml
+go run ./cmd/server
 ```
 
 ## Production Single-Port Startup
 
-Build frontend assets first, then run backend:
+Build frontend assets first, then run backend with a valid `config.yaml`:
 
 ```bash
 cd frontend
@@ -108,8 +147,8 @@ cd ../backend
 go run ./cmd/server
 ```
 
-In this mode, Go serves both API routes and frontend static files on `http://localhost:8080`.
-If `FRONTEND_DIST_DIR` is missing or does not contain `index.html`, backend still starts and serves `/api/*` only.
+In this mode, Go serves both API routes and frontend static files on the configured port.
+If `server.frontend_dist_dir` is missing or does not contain `index.html`, backend still starts and serves `/api/*` only.
 
 ## API Summary
 
@@ -130,6 +169,8 @@ Compatibility route:
 cd backend
 go test ./...
 ```
+
+HTTP/API integration tests require MySQL. Set `TEST_MYSQL_DSN` (with `parseTime=true`) to enable them; otherwise those tests are skipped.
 
 ### Frontend tests
 
@@ -169,12 +210,11 @@ This section documents deployment on Debian with the following constraints:
 
 ```text
 /root/bankRepay/bank-repayment-record
-├─ backend/                     # git source
+├─ backend/                     # git source (+ config.yaml)
 ├─ frontend/                    # git source
 ├─ bin/                         # backend binary
-├─ config/                      # env/config files
+├─ config/                      # optional shared config
 ├─ ui/                          # built frontend static files
-└─ data/                        # sqlite db
 ```
 
 ### 1) Install Dependencies
@@ -240,21 +280,31 @@ cd /root/bankRepay/bank-repayment-record/backend
 /usr/local/go/bin/go build -o /root/bankRepay/bank-repayment-record/bin/bank-backend ./cmd/server
 ```
 
-### 5) Create Backend Environment File
+### 5) Create Backend YAML Config
 
-Create `/root/bankRepay/bank-repayment-record/config/backend.env`:
+Create `/root/bankRepay/bank-repayment-record/backend/config.yaml` (or any path pointed to by `CONFIG_PATH`):
 
 ```bash
-cat > /root/bankRepay/bank-repayment-record/config/backend.env <<'EOF'
-DB_PATH=/root/bankRepay/bank-repayment-record/data/repayments.db
-TIMEZONE=Asia/Shanghai
-PORT=8080
-FRONTEND_DIST_DIR=/root/bankRepay/bank-repayment-record/ui
-CORS_ALLOWED_ORIGINS=http://127.0.0.1:8080,http://localhost:8080
+cat > /root/bankRepay/bank-repayment-record/backend/config.yaml <<'EOF'
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "repay"
+  password: "change-me"
+  database: "bank_repayment"
+  params: "parseTime=true&loc=Local&charset=utf8mb4&collation=utf8mb4_unicode_ci"
+
+server:
+  port: "8080"
+  timezone: "Asia/Shanghai"
+  cors_allowed_origins:
+    - "http://127.0.0.1:8080"
+    - "http://localhost:8080"
+  frontend_dist_dir: "/root/bankRepay/bank-repayment-record/ui"
 EOF
 ```
 
-If a public domain is used, set `CORS_ALLOWED_ORIGINS` to the production domain, for example `https://repay.example.com`.
+If a public domain is used, set `server.cors_allowed_origins` to the production domain, for example `https://repay.example.com`.
 
 ### 6) Create systemd Service
 
@@ -272,7 +322,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/root/bankRepay/bank-repayment-record/backend
-EnvironmentFile=/root/bankRepay/bank-repayment-record/config/backend.env
+Environment=CONFIG_PATH=/root/bankRepay/bank-repayment-record/backend/config.yaml
 ExecStart=/root/bankRepay/bank-repayment-record/bin/bank-backend
 Restart=always
 RestartSec=3

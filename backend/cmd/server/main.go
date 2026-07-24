@@ -21,7 +21,7 @@ func main() {
 		log.Fatalf("load timezone: %v", err)
 	}
 
-	store, err := storage.OpenSQLite(cfg.DBPath, loc)
+	store, err := storage.OpenMySQL(cfg.MySQL, loc)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
@@ -31,7 +31,12 @@ func main() {
 		}
 	}()
 
-	server := httpapi.NewServer(store, loc, cfg.FrontendDistDir, cfg.CORSAllowedOrigins...)
+	server := httpapi.NewServer(store, loc, httpapi.ServerOptions{
+		FrontendDistDir:    cfg.FrontendDistDir,
+		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
+		Auth:               cfg.Auth,
+		BeianText:          cfg.BeianText,
+	})
 	addr := ":" + cfg.Port
 	log.Printf("backend listening on %s", addr)
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
