@@ -10,6 +10,13 @@ import { DEFAULT_FORMULA_LABEL } from '../utils/format'
 
 const API_BASE = '/api'
 
+export class UnauthorizedError extends Error {
+  constructor(message = 'unauthorized') {
+    super(message)
+    this.name = 'UnauthorizedError'
+  }
+}
+
 interface HistoryResponse {
   months?: HistoryMonthResponse[]
 }
@@ -52,11 +59,15 @@ function emptyCurrencyRecord(): Record<Currency, number> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (!headers.has('Content-Type') && init?.body !== undefined) {
+    headers.set('Content-Type', 'application/json')
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-    },
     ...init,
+    credentials: 'include',
+    headers,
   })
 
   if (!response.ok) {
@@ -69,6 +80,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Ignore JSON parsing failures for non-JSON error responses.
     }
+    if (response.status === 401) {
+      throw new UnauthorizedError(reason)
+    }
     throw new Error(reason)
   }
 
@@ -77,6 +91,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T
+}
+
+export async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+export async function fetchAuthMe(): Promise<boolean> {
+  try {
+    await request<{ status: string }>('/auth/me')
+    return true
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return false
+    }
+    throw error
+  }
+}
+
+export async function login(password: string): Promise<void> {
+  const passwordHash = await sha256Hex(password)
+  await request<{ status: string }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ passwordHash }),
+  })
+}
+
+export async function logout(): Promise<void> {
+  await request<{ status: string }>('/auth/logout', {
+    method: 'POST',
+  })
 }
 
 function buildQuery(filters: HistoryFilters): string {

@@ -31,7 +31,11 @@ func main() {
 		}
 	}()
 
-	server := httpapi.NewServer(store, loc, cfg.FrontendDistDir, cfg.CORSAllowedOrigins...)
+	server := httpapi.NewServer(store, loc, httpapi.ServerOptions{
+		FrontendDistDir:    cfg.FrontendDistDir,
+		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
+		Auth:               cfg.Auth,
+	})
 	addr := ":" + cfg.Port
 	log.Printf("backend listening on %s", addr)
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {

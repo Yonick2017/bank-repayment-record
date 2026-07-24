@@ -14,6 +14,28 @@ cd backend
 cp config.example.yaml config.yaml
 ```
 
+Required sections:
+
+- `mysql` — database connection
+- `auth.password_hash` — SHA-256 hex digest of the shared login password
+- `auth.session_secret` — random secret (at least 16 characters) used to sign the session cookie
+
+Generate `auth.password_hash` from the plaintext password (do not put the plaintext in YAML):
+
+```bash
+# Linux / macOS
+echo -n 'your-password' | sha256sum
+```
+
+```powershell
+# PowerShell
+[BitConverter]::ToString(
+  (New-Object Security.Cryptography.SHA256Managed).ComputeHash(
+    [Text.Encoding]::UTF8.GetBytes('your-password')
+  )
+).Replace('-','').ToLower()
+```
+
 `config.yaml` is gitignored. Optional environment variable:
 
 - `CONFIG_PATH` — path to the YAML config file  

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"bank-repayment-record/backend/internal/auth"
+
 	"github.com/go-sql-driver/mysql"
 	"gopkg.in/yaml.v3"
 )
@@ -34,6 +36,7 @@ type MySQLConfig struct {
 
 type Config struct {
 	MySQL              MySQLConfig
+	Auth               auth.Config
 	Timezone           string
 	Port               string
 	CORSAllowedOrigins []string
@@ -43,6 +46,7 @@ type Config struct {
 type fileConfig struct {
 	MySQL  fileMySQLConfig  `yaml:"mysql"`
 	Server fileServerConfig `yaml:"server"`
+	Auth   fileAuthConfig   `yaml:"auth"`
 }
 
 type fileMySQLConfig struct {
@@ -59,6 +63,12 @@ type fileServerConfig struct {
 	Timezone           string   `yaml:"timezone"`
 	CORSAllowedOrigins []string `yaml:"cors_allowed_origins"`
 	FrontendDistDir    string   `yaml:"frontend_dist_dir"`
+}
+
+type fileAuthConfig struct {
+	PasswordHash  string `yaml:"password_hash"`
+	SessionSecret string `yaml:"session_secret"`
+	SessionDays   int    `yaml:"session_days"`
 }
 
 func Load() (Config, error) {
@@ -80,6 +90,11 @@ func LoadFromPath(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
 
+	sessionDays := file.Auth.SessionDays
+	if sessionDays <= 0 {
+		sessionDays = auth.DefaultSessionDays
+	}
+
 	cfg := Config{
 		MySQL: MySQLConfig{
 			Host:     strings.TrimSpace(file.MySQL.Host),
@@ -88,6 +103,11 @@ func LoadFromPath(path string) (Config, error) {
 			Password: file.MySQL.Password,
 			Database: strings.TrimSpace(file.MySQL.Database),
 			Params:   strings.TrimSpace(file.MySQL.Params),
+		},
+		Auth: auth.Config{
+			PasswordHash:  strings.ToLower(strings.TrimSpace(file.Auth.PasswordHash)),
+			SessionSecret: strings.TrimSpace(file.Auth.SessionSecret),
+			SessionDays:   sessionDays,
 		},
 		Timezone:           strings.TrimSpace(file.Server.Timezone),
 		Port:               strings.TrimSpace(file.Server.Port),
@@ -135,6 +155,15 @@ func (c Config) Validate() error {
 	}
 	if _, err := time.LoadLocation(c.Timezone); err != nil {
 		return fmt.Errorf("invalid server.timezone %q: %w", c.Timezone, err)
+	}
+	if err := auth.ValidatePasswordHash(c.Auth.PasswordHash); err != nil {
+		return err
+	}
+	if err := auth.ValidateSessionSecret(c.Auth.SessionSecret); err != nil {
+		return err
+	}
+	if c.Auth.SessionDays <= 0 {
+		return fmt.Errorf("auth.session_days must be positive")
 	}
 	return nil
 }

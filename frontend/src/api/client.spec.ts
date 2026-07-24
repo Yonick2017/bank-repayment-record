@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createRepayment, fetchHistory, fetchHomeSummary, fetchStats } from './client'
+import {
+  createRepayment,
+  fetchAuthMe,
+  fetchHistory,
+  fetchHomeSummary,
+  fetchStats,
+  login,
+  logout,
+  sha256Hex,
+  UnauthorizedError,
+} from './client'
 
 const fetchMock = vi.fn()
 vi.stubGlobal('fetch', fetchMock)
@@ -41,6 +51,7 @@ describe('api client contract mapping', () => {
       '/api/repayments',
       expect.objectContaining({
         method: 'POST',
+        credentials: 'include',
       }),
     )
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
@@ -125,5 +136,42 @@ describe('api client contract mapping', () => {
       monthlyTotals: { RMB: 20, HKD: -11 },
       averageMonthlySpending: { RMB: 20, HKD: -11 },
     })
+    expect(fetchMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        credentials: 'include',
+      }),
+    )
+  })
+
+  it('hashes password before login and supports auth helpers', async () => {
+    const expectedHash = await sha256Hex('change-me')
+    fetchMock
+      .mockResolvedValueOnce(mockJsonResponse({ status: 'ok' }))
+      .mockResolvedValueOnce(mockJsonResponse({ status: 'ok' }))
+      .mockResolvedValueOnce(mockJsonResponse({ error: 'unauthorized' }, 401))
+      .mockResolvedValueOnce(mockJsonResponse({ status: 'ok' }))
+
+    await login('change-me')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/auth/login')
+    expect(fetchMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+      }),
+    )
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      passwordHash: expectedHash,
+    })
+
+    await expect(fetchAuthMe()).resolves.toBe(true)
+    await expect(fetchAuthMe()).resolves.toBe(false)
+
+    await logout()
+    expect(fetchMock.mock.calls[3][0]).toBe('/api/auth/logout')
+  })
+
+  it('throws UnauthorizedError on 401 for business APIs', async () => {
+    fetchMock.mockResolvedValue(mockJsonResponse({ error: 'unauthorized' }, 401))
+    await expect(fetchHomeSummary()).rejects.toBeInstanceOf(UnauthorizedError)
   })
 })

@@ -6,10 +6,10 @@
 ## Requirements
 
 ### Requirement: Single-user MySQL persistence
-系统 MUST 使用 MySQL 保存还款记录，并以单用户模式运行，不依赖登录或远程账号系统。
+系统 MUST 使用 MySQL 保存还款记录，并以单用户模式运行，不依赖远程多账号体系；访问门禁由共享密码会话提供（见 `shared-password-auth`）。
 
 #### Scenario: Persist records in MySQL
-- **WHEN** 用户提交新的还款记录
+- **WHEN** 已通过共享密码鉴权的用户提交新的还款记录
 - **THEN** 系统将记录写入配置的 MySQL 数据库并可在历史页读取
 
 ### Requirement: YAML database connection configuration

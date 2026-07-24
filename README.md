@@ -5,9 +5,11 @@ A single-user web application for tracking bank card repayments.
 - Frontend: Vue 3 + Vite
 - Backend: Go + MySQL 8.0
 - Data storage: online MySQL (connection configured via YAML)
+- Access control: shared password gate with HttpOnly session cookie (30 days)
 
 ## Features
 
+- Shared-password login (password hashed in the browser before the login request)
 - Home page with two actions:
   - `记录还款`
   - `查看历史记录`
@@ -72,8 +74,10 @@ A single-user web application for tracking bank card repayments.
 ```bash
 cd backend
 cp config.example.yaml config.yaml
-# edit mysql.host / port / user / password / database in config.yaml
+# edit mysql.* and auth.password_hash / auth.session_secret in config.yaml
 ```
+
+`auth.password_hash` must be the SHA-256 hex digest of the shared login password (see `backend/README.md` for generation commands). Do not store the plaintext password in YAML.
 
 `config.yaml` is gitignored. Use `config.example.yaml` as the template.
 

@@ -12,14 +12,20 @@ const emit = defineEmits<{
   record: []
   history: []
   refresh: []
+  logout: []
 }>()
 </script>
 
 <template>
   <section class="page-shell">
     <header class="home-header">
-      <h1>还款记录</h1>
-      <p>本地账务记录与统计</p>
+      <div class="home-header-row">
+        <div>
+          <h1>还款记录</h1>
+          <p>本地账务记录与统计</p>
+        </div>
+        <button type="button" class="ghost" @click="emit('logout')">登出</button>
+      </div>
     </header>
 
     <article class="summary-card">

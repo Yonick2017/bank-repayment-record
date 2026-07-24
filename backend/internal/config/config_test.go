@@ -4,7 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"bank-repayment-record/backend/internal/auth"
 )
+
+const testPasswordHash = "e2186dbdb1bb4193608605e84f33208765b5693b55edd4f730a719a100eeea6f"
+const testSessionSecret = "test-session-secret"
+
+func validAuthYAML() string {
+	return `
+auth:
+  password_hash: "` + testPasswordHash + `"
+  session_secret: "` + testSessionSecret + `"
+`
+}
 
 func TestLoadFromPathUsesDefaultsAndParsesMySQL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
@@ -20,7 +33,7 @@ server:
   cors_allowed_origins:
     - "http://localhost:3000"
     - " https://example.com "
-`
+` + validAuthYAML()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -57,6 +70,15 @@ server:
 	if cfg.CORSAllowedOrigins[0] != "http://localhost:3000" || cfg.CORSAllowedOrigins[1] != "https://example.com" {
 		t.Fatalf("unexpected cors origins: %#v", cfg.CORSAllowedOrigins)
 	}
+	if cfg.Auth.PasswordHash != testPasswordHash {
+		t.Fatalf("unexpected password hash %q", cfg.Auth.PasswordHash)
+	}
+	if cfg.Auth.SessionSecret != testSessionSecret {
+		t.Fatalf("unexpected session secret %q", cfg.Auth.SessionSecret)
+	}
+	if cfg.Auth.SessionDays != auth.DefaultSessionDays {
+		t.Fatalf("expected default session days %d, got %d", auth.DefaultSessionDays, cfg.Auth.SessionDays)
+	}
 
 	dsn, err := cfg.MySQL.DSN()
 	if err != nil {
@@ -75,7 +97,7 @@ mysql:
   user: "repay"
   database: "bank_repayment"
 server: {}
-`
+` + validAuthYAML()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -83,6 +105,28 @@ server: {}
 	_, err := LoadFromPath(path)
 	if err == nil {
 		t.Fatalf("expected error for missing mysql.host")
+	}
+}
+
+func TestLoadFromPathRequiresAuthFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `
+mysql:
+  host: "127.0.0.1"
+  user: "repay"
+  database: "bank_repayment"
+server: {}
+auth:
+  password_hash: "not-a-hash"
+  session_secret: "short"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := LoadFromPath(path)
+	if err == nil {
+		t.Fatalf("expected error for invalid auth config")
 	}
 }
 
@@ -102,7 +146,7 @@ mysql:
   database: "bank_repayment"
 server:
   timezone: "Not/AZone"
-`
+` + validAuthYAML()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -123,7 +167,7 @@ mysql:
   database: "bank_repayment"
 server:
   port: "9090"
-`
+` + validAuthYAML()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

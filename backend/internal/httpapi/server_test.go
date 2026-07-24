@@ -13,9 +13,15 @@ import (
 	"testing"
 	"time"
 
+	"bank-repayment-record/backend/internal/auth"
 	"bank-repayment-record/backend/internal/httpapi"
 	"bank-repayment-record/backend/internal/repayment"
 	"bank-repayment-record/backend/internal/storage"
+)
+
+const (
+	testPasswordHash  = "e2186dbdb1bb4193608605e84f33208765b5693b55edd4f730a719a100eeea6f"
+	testSessionSecret = "test-session-secret-value"
 )
 
 func TestCreateRepaymentCompatibilityFields(t *testing.T) {
@@ -299,6 +305,9 @@ func TestCORSPreflightAndAllowList(t *testing.T) {
 	if preflightRes.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
 		t.Fatalf("expected allow origin for configured host")
 	}
+	if preflightRes.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("expected allow credentials for configured host")
+	}
 
 	blockedRes := httptest.NewRecorder()
 	blockedReq := httptest.NewRequest(http.MethodOptions, "/api/repayments", nil)
@@ -427,7 +436,17 @@ func newTestHandlerWithFrontend(t *testing.T, origins []string, frontendDistDir 
 		t.Fatalf("clear repayments: %v", err)
 	}
 
-	server := httpapi.NewServer(store, loc, frontendDistDir, origins...)
+	server := httpapi.NewServer(store, loc, httpapi.ServerOptions{
+		FrontendDistDir:    frontendDistDir,
+		CORSAllowedOrigins: origins,
+		Auth: auth.Config{
+			PasswordHash:  testPasswordHash,
+			SessionSecret: testSessionSecret,
+			SessionDays:   auth.DefaultSessionDays,
+		},
+	})
+	rawHandler := server.Handler()
+	cookie := mustLogin(t, rawHandler, testPasswordHash)
 	cleanup := func() {
 		if err := store.ClearRepayments(context.Background()); err != nil {
 			t.Fatalf("clear repayments: %v", err)
@@ -436,7 +455,37 @@ func newTestHandlerWithFrontend(t *testing.T, origins []string, frontendDistDir 
 			t.Fatalf("close mysql: %v", err)
 		}
 	}
-	return server.Handler(), store, cleanup
+	return &cookieHandler{next: rawHandler, cookie: cookie}, store, cleanup
+}
+
+type cookieHandler struct {
+	next   http.Handler
+	cookie *http.Cookie
+}
+
+func (h *cookieHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.cookie != nil {
+		r.AddCookie(h.cookie)
+	}
+	h.next.ServeHTTP(w, r)
+}
+
+func mustLogin(t *testing.T, handler http.Handler, passwordHash string) *http.Cookie {
+	t.Helper()
+	res := httptest.NewRecorder()
+	body := `{"passwordHash":"` + passwordHash + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(body))
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("login failed: %d %s", res.Code, res.Body.String())
+	}
+	for _, cookie := range res.Result().Cookies() {
+		if cookie.Name == auth.CookieName {
+			return cookie
+		}
+	}
+	t.Fatalf("expected session cookie after login")
+	return nil
 }
 
 func mustCreateRecord(t *testing.T, store *storage.MySQLStore, record repayment.Record) repayment.Record {
