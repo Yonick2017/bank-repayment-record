@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { login } from '../api/client'
+import { onMounted, ref } from 'vue'
+import { fetchPublicConfig, login } from '../api/client'
 
 const emit = defineEmits<{
   success: []
@@ -9,6 +9,7 @@ const emit = defineEmits<{
 const password = ref('')
 const submitting = ref(false)
 const errorMessage = ref('')
+const beianText = ref('')
 
 async function onSubmit() {
   if (!password.value || submitting.value) {
@@ -26,6 +27,15 @@ async function onSubmit() {
     submitting.value = false
   }
 }
+
+onMounted(async () => {
+  try {
+    const config = await fetchPublicConfig()
+    beianText.value = config.beianText
+  } catch {
+    beianText.value = ''
+  }
+})
 </script>
 
 <template>
@@ -52,5 +62,14 @@ async function onSubmit() {
         {{ submitting ? '登录中...' : '登录' }}
       </button>
     </form>
+
+    <footer v-if="beianText" class="site-footer">
+      <a
+        class="beian-link"
+        href="https://beian.miit.gov.cn/"
+        target="_blank"
+        rel="noopener noreferrer"
+      >{{ beianText }}</a>
+    </footer>
   </section>
 </template>

@@ -41,6 +41,7 @@ type Config struct {
 	Port               string
 	CORSAllowedOrigins []string
 	FrontendDistDir    string
+	BeianText          string
 }
 
 type fileConfig struct {
@@ -63,6 +64,7 @@ type fileServerConfig struct {
 	Timezone           string   `yaml:"timezone"`
 	CORSAllowedOrigins []string `yaml:"cors_allowed_origins"`
 	FrontendDistDir    string   `yaml:"frontend_dist_dir"`
+	BeianText          string   `yaml:"beian_text"`
 }
 
 type fileAuthConfig struct {
@@ -113,6 +115,7 @@ func LoadFromPath(path string) (Config, error) {
 		Port:               strings.TrimSpace(file.Server.Port),
 		CORSAllowedOrigins: normalizeOrigins(file.Server.CORSAllowedOrigins),
 		FrontendDistDir:    strings.TrimSpace(file.Server.FrontendDistDir),
+		BeianText:          strings.TrimSpace(file.Server.BeianText),
 	}
 
 	if cfg.MySQL.Port == 0 {

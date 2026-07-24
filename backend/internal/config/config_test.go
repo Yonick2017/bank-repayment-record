@@ -79,6 +79,9 @@ server:
 	if cfg.Auth.SessionDays != auth.DefaultSessionDays {
 		t.Fatalf("expected default session days %d, got %d", auth.DefaultSessionDays, cfg.Auth.SessionDays)
 	}
+	if cfg.BeianText != "" {
+		t.Fatalf("expected empty beian text when omitted, got %q", cfg.BeianText)
+	}
 
 	dsn, err := cfg.MySQL.DSN()
 	if err != nil {
@@ -86,6 +89,29 @@ server:
 	}
 	if dsn == "" {
 		t.Fatalf("expected non-empty dsn")
+	}
+}
+
+func TestLoadFromPathParsesBeianText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := `
+mysql:
+  host: "127.0.0.1"
+  user: "repay"
+  database: "bank_repayment"
+server:
+  beian_text: "  粤ICP备12345678号  "
+` + validAuthYAML()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadFromPath(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.BeianText != "粤ICP备12345678号" {
+		t.Fatalf("unexpected beian text %q", cfg.BeianText)
 	}
 }
 

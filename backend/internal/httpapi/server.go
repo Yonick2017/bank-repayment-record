@@ -50,6 +50,7 @@ type ServerOptions struct {
 	FrontendDistDir    string
 	CORSAllowedOrigins []string
 	Auth               auth.Config
+	BeianText          string
 }
 
 type Server struct {
@@ -58,6 +59,7 @@ type Server struct {
 	allowedOrigins  map[string]struct{}
 	frontendDistDir string
 	auth            auth.Config
+	beianText       string
 	now             func() time.Time
 }
 
@@ -72,12 +74,14 @@ func NewServer(store Store, loc *time.Location, opts ServerOptions) *Server {
 		allowedOrigins:  buildAllowedOrigins(opts.CORSAllowedOrigins),
 		frontendDistDir: strings.TrimSpace(opts.FrontendDistDir),
 		auth:            authCfg,
+		beianText:       strings.TrimSpace(opts.BeianText),
 		now:             time.Now,
 	}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/public/config", s.handlePublicConfig)
 	mux.HandleFunc("/api/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/auth/logout", s.handleLogout)
 	mux.HandleFunc("/api/auth/me", s.handleMe)
@@ -165,11 +169,21 @@ func isProtectedAPI(pathValue string) bool {
 		return false
 	}
 	switch pathValue {
-	case "/api/auth/login", "/api/auth/logout", "/api/auth/me":
+	case "/api/public/config", "/api/auth/login", "/api/auth/logout", "/api/auth/me":
 		return false
 	default:
 		return true
 	}
+}
+
+func (s *Server) handlePublicConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"beianText": s.beianText,
+	})
 }
 
 func (s *Server) handleFrontend(w http.ResponseWriter, r *http.Request) {

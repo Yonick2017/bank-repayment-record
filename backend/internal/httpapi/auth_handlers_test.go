@@ -30,17 +30,63 @@ func (stubStore) ListRepayments(ctx context.Context, filters repayment.Filters) 
 
 func newAuthTestServer(t *testing.T) *httpapi.Server {
 	t.Helper()
+	return newAuthTestServerWithOptions(t, httpapi.ServerOptions{})
+}
+
+func newAuthTestServerWithOptions(t *testing.T, opts httpapi.ServerOptions) *httpapi.Server {
+	t.Helper()
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		t.Fatalf("load location: %v", err)
 	}
-	return httpapi.NewServer(stubStore{}, loc, httpapi.ServerOptions{
-		Auth: auth.Config{
+	if opts.Auth.PasswordHash == "" {
+		opts.Auth = auth.Config{
 			PasswordHash:  testPasswordHash,
 			SessionSecret: testSessionSecret,
 			SessionDays:   auth.DefaultSessionDays,
-		},
-	})
+		}
+	}
+	return httpapi.NewServer(stubStore{}, loc, opts)
+}
+
+func TestPublicConfigUnauthenticated(t *testing.T) {
+	handler := newAuthTestServerWithOptions(t, httpapi.ServerOptions{
+		BeianText: "粤ICP备12345678号",
+	}).Handler()
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/public/config", nil)
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["beianText"] != "粤ICP备12345678号" {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
+func TestPublicConfigEmptyBeianText(t *testing.T) {
+	handler := newAuthTestServer(t).Handler()
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/public/config", nil)
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload["beianText"] != "" {
+		t.Fatalf("expected empty beianText, got %#v", payload)
+	}
 }
 
 func TestAuthLoginLogoutAndProtectedRoutes(t *testing.T) {

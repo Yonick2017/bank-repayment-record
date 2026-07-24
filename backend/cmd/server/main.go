@@ -35,6 +35,7 @@ func main() {
 		FrontendDistDir:    cfg.FrontendDistDir,
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		Auth:               cfg.Auth,
+		BeianText:          cfg.BeianText,
 	})
 	addr := ":" + cfg.Port
 	log.Printf("backend listening on %s", addr)

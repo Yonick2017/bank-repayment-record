@@ -113,6 +113,17 @@ export async function fetchAuthMe(): Promise<boolean> {
   }
 }
 
+export interface PublicConfig {
+  beianText: string
+}
+
+export async function fetchPublicConfig(): Promise<PublicConfig> {
+  const response = await request<{ beianText?: string }>('/public/config')
+  return {
+    beianText: typeof response.beianText === 'string' ? response.beianText.trim() : '',
+  }
+}
+
 export async function login(password: string): Promise<void> {
   const passwordHash = await sha256Hex(password)
   await request<{ status: string }>('/auth/login', {

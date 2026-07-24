@@ -51,14 +51,5 @@ const emit = defineEmits<{
       <button type="button" class="primary" @click="emit('record')">记录还款</button>
       <button type="button" class="secondary" @click="emit('history')">查看历史记录</button>
     </div>
-
-    <footer class="site-footer">
-      <a
-        class="beian-link"
-        href="https://beian.miit.gov.cn/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >备案号</a>
-    </footer>
   </section>
 </template>
