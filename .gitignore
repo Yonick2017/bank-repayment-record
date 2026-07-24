@@ -1,2 +1,5 @@
 .cursor/
 openspec/changes/
+config.yaml
+backend/config.yaml
+**/config.local.yaml

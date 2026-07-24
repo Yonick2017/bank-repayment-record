@@ -1,0 +1,16 @@
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "repay"
+  password: "change-me"
+  database: "bank_repayment"
+  # Optional; defaults applied when omitted
+  params: "parseTime=true&loc=Local&charset=utf8mb4&collation=utf8mb4_unicode_ci"
+
+server:
+  port: "8080"
+  timezone: "Asia/Shanghai"
+  cors_allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+  frontend_dist_dir: "../frontend/dist"

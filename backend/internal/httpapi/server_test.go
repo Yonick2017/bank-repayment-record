@@ -397,38 +397,49 @@ func TestFrontendRouteDoesNotOverrideAPI(t *testing.T) {
 	}
 }
 
-func newTestHandler(t *testing.T) (http.Handler, *storage.SQLiteStore, func()) {
+func newTestHandler(t *testing.T) (http.Handler, *storage.MySQLStore, func()) {
 	return newTestHandlerWithFrontend(t, nil, "")
 }
 
-func newTestHandlerWithOrigins(t *testing.T, origins []string) (http.Handler, *storage.SQLiteStore, func()) {
+func newTestHandlerWithOrigins(t *testing.T, origins []string) (http.Handler, *storage.MySQLStore, func()) {
 	return newTestHandlerWithFrontend(t, origins, "")
 }
 
-func newTestHandlerWithFrontend(t *testing.T, origins []string, frontendDistDir string) (http.Handler, *storage.SQLiteStore, func()) {
+func newTestHandlerWithFrontend(t *testing.T, origins []string, frontendDistDir string) (http.Handler, *storage.MySQLStore, func()) {
 	t.Helper()
+
+	dsn := strings.TrimSpace(os.Getenv("TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("TEST_MYSQL_DSN not set; skip MySQL integration tests")
+	}
 
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		t.Fatalf("load location: %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	store, err := storage.OpenSQLite(dbPath, loc)
+	store, err := storage.OpenMySQLDSN(dsn, loc)
 	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+		t.Fatalf("open mysql: %v", err)
+	}
+	if err := store.ClearRepayments(context.Background()); err != nil {
+		_ = store.Close()
+		t.Fatalf("clear repayments: %v", err)
 	}
 
 	server := httpapi.NewServer(store, loc, frontendDistDir, origins...)
 	cleanup := func() {
+		if err := store.ClearRepayments(context.Background()); err != nil {
+			t.Fatalf("clear repayments: %v", err)
+		}
 		if err := store.Close(); err != nil {
-			t.Fatalf("close sqlite: %v", err)
+			t.Fatalf("close mysql: %v", err)
 		}
 	}
 	return server.Handler(), store, cleanup
 }
 
-func mustCreateRecord(t *testing.T, store *storage.SQLiteStore, record repayment.Record) repayment.Record {
+func mustCreateRecord(t *testing.T, store *storage.MySQLStore, record repayment.Record) repayment.Record {
 	t.Helper()
 	created, err := store.CreateRepayment(contextBackground(), record)
 	if err != nil {

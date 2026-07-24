@@ -21,7 +21,7 @@ func main() {
 		log.Fatalf("load timezone: %v", err)
 	}
 
-	store, err := storage.OpenSQLite(cfg.DBPath, loc)
+	store, err := storage.OpenMySQL(cfg.MySQL, loc)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
